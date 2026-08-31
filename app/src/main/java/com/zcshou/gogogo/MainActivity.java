@@ -210,8 +210,6 @@ public class MainActivity extends BaseActivity implements SensorEventListener {
         initSearchView();
 
         initUpdateVersion();
-
-        checkUpdateVersion(false);
     }
 
     @Override
