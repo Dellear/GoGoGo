@@ -129,6 +129,7 @@ public class MainActivity extends BaseActivity implements SensorEventListener {
     private static BaiduMap mBaiduMap = null;
     private static LatLng mMarkLatLngMap = new LatLng(36.547743718042415, 117.07018449827267); // 当前标记的地图点
     private static String mMarkName = null;
+    private boolean mShowInfoWindow = false; // 是否显示信息窗口（仅长按时显示）
     private GeoCoder mGeoCoder;
     private SensorManager mSensorManager;
     private Sensor mSensorAccelerometer;
@@ -470,6 +471,8 @@ public class MainActivity extends BaseActivity implements SensorEventListener {
             public void onMapClick(LatLng point) {
                 mMarkLatLngMap = point;
                 markMap();
+                mShowInfoWindow = false; // 普通点击不显示信息窗口
+                mGeoCoder.reverseGeoCode(new ReverseGeoCodeOption().location(point));
             }
             /**
              * 单击地图中的POI点
@@ -478,6 +481,8 @@ public class MainActivity extends BaseActivity implements SensorEventListener {
             public void onMapPoiClick(MapPoi poi) {
                 mMarkLatLngMap = poi.getPosition();
                 markMap();
+                mShowInfoWindow = false; // POI点击不显示信息窗口
+                mGeoCoder.reverseGeoCode(new ReverseGeoCodeOption().location(poi.getPosition()));
             }
         });
         mBaiduMap.setOnMapLongClickListener(new BaiduMap.OnMapLongClickListener() {
@@ -488,6 +493,7 @@ public class MainActivity extends BaseActivity implements SensorEventListener {
             public void onMapLongClick(LatLng point) {
                 mMarkLatLngMap = point;
                 markMap();
+                mShowInfoWindow = true; // 长按显示信息窗口
                 mGeoCoder.reverseGeoCode(new ReverseGeoCodeOption().location(point));
             }
         });
@@ -537,12 +543,43 @@ public class MainActivity extends BaseActivity implements SensorEventListener {
                 if (reverseGeoCodeResult == null || reverseGeoCodeResult.error != SearchResult.ERRORNO.NO_ERROR) {
                     XLog.i("逆地理位置失败!");
                 } else {
-                    mMarkName = String.valueOf(reverseGeoCodeResult.getAddress());
-                    poiLatitude.setText(String.valueOf(reverseGeoCodeResult.getLocation().latitude));
-                    poiLongitude.setText(String.valueOf(reverseGeoCodeResult.getLocation().longitude));
-                    poiAddress.setText(reverseGeoCodeResult.getAddress());
-                    final InfoWindow mInfoWindow = new InfoWindow(poiView, reverseGeoCodeResult.getLocation(), -100);
-                    mBaiduMap.showInfoWindow(mInfoWindow);
+                    // 优先使用POI名称，其次使用简短描述
+                    String simpleName = null;
+                    if (reverseGeoCodeResult.getPoiList() != null && !reverseGeoCodeResult.getPoiList().isEmpty()) {
+                        // 使用最近的POI名称
+                        simpleName = reverseGeoCodeResult.getPoiList().get(0).name;
+                    } else if (reverseGeoCodeResult.getSematicDescription() != null && !reverseGeoCodeResult.getSematicDescription().isEmpty()) {
+                        // 使用语义化描述（例如："在XX附近"）
+                        simpleName = reverseGeoCodeResult.getSematicDescription();
+                    } else {
+                        // 使用区县 + 街道/乡镇的简短组合
+                        ReverseGeoCodeResult.AddressComponent addressComponent = reverseGeoCodeResult.getAddressDetail();
+                        if (addressComponent != null) {
+                            String district = addressComponent.district;  // 区县
+                            String street = addressComponent.street;      // 街道
+                            if (district != null && !district.isEmpty() && street != null && !street.isEmpty()) {
+                                simpleName = district + street;
+                            } else if (district != null && !district.isEmpty()) {
+                                simpleName = district;
+                            } else {
+                                // 最后使用完整地址
+                                simpleName = reverseGeoCodeResult.getAddress();
+                            }
+                        } else {
+                            simpleName = reverseGeoCodeResult.getAddress();
+                        }
+                    }
+
+                    mMarkName = simpleName;
+
+                    // 只在长按时显示信息窗口
+                    if (mShowInfoWindow) {
+                        poiLatitude.setText(String.valueOf(reverseGeoCodeResult.getLocation().latitude));
+                        poiLongitude.setText(String.valueOf(reverseGeoCodeResult.getLocation().longitude));
+                        poiAddress.setText(simpleName);  // 显示简短名称而不是完整地址
+                        final InfoWindow mInfoWindow = new InfoWindow(poiView, reverseGeoCodeResult.getLocation(), -100);
+                        mBaiduMap.showInfoWindow(mInfoWindow);
+                    }
                 }
             }
         });
@@ -963,7 +1000,7 @@ public class MainActivity extends BaseActivity implements SensorEventListener {
                             DataBaseHistoryLocation.saveHistoryLocation(mLocationHistoryDB, contentValues);
                         } else {
                             ContentValues contentValues = new ContentValues();
-                            contentValues.put(DataBaseHistoryLocation.DB_COLUMN_LOCATION, mMarkName == null ? getRetJson.getString("message"): mMarkName);
+                            contentValues.put(DataBaseHistoryLocation.DB_COLUMN_LOCATION, mMarkName == null ? getResources().getString(R.string.history_location_default_name) : mMarkName);
                             contentValues.put(DataBaseHistoryLocation.DB_COLUMN_LONGITUDE_WGS84, String.valueOf(latLng[0]));
                             contentValues.put(DataBaseHistoryLocation.DB_COLUMN_LATITUDE_WGS84, String.valueOf(latLng[1]));
                             contentValues.put(DataBaseHistoryLocation.DB_COLUMN_TIMESTAMP, System.currentTimeMillis() / 1000);
@@ -975,7 +1012,6 @@ public class MainActivity extends BaseActivity implements SensorEventListener {
                         XLog.e("JSON: resolve json error");
                         ContentValues contentValues = new ContentValues();
                         contentValues.put(DataBaseHistoryLocation.DB_COLUMN_LOCATION, mMarkName == null ? getResources().getString(R.string.history_location_default_name) : mMarkName);
-                        contentValues.put(DataBaseHistoryLocation.DB_COLUMN_LOCATION, mMarkName);
                         contentValues.put(DataBaseHistoryLocation.DB_COLUMN_LONGITUDE_WGS84, String.valueOf(latLng[0]));
                         contentValues.put(DataBaseHistoryLocation.DB_COLUMN_LATITUDE_WGS84, String.valueOf(latLng[1]));
                         contentValues.put(DataBaseHistoryLocation.DB_COLUMN_TIMESTAMP, System.currentTimeMillis() / 1000);
